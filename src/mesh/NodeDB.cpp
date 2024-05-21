@@ -32,6 +32,8 @@
 #include "modules/esp32/StoreForwardModule.h"
 #include <Preferences.h>
 #include <nvs_flash.h>
+#undef EXT_RAM_ATTR
+#define EXT_RAM_ATTR EXT_RAM_BSS_ATTR
 #endif
 
 #ifdef ARCH_PORTDUINO
@@ -140,11 +142,6 @@ NodeDB::NodeDB()
         saveWhat |= SEGMENT_CONFIG;
     if (channelFileCRC != crc32Buffer(&channelFile, sizeof(channelFile)))
         saveWhat |= SEGMENT_CHANNELS;
-
-    if (!devicestate.node_remote_hardware_pins) {
-        meshtastic_NodeRemoteHardwarePin empty[12] = {meshtastic_RemoteHardwarePin_init_default};
-        memcpy(devicestate.node_remote_hardware_pins, empty, sizeof(empty));
-    }
 
     if (config.position.gps_enabled) {
         config.position.gps_mode = meshtastic_Config_PositionConfig_GpsMode_ENABLED;

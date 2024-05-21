@@ -293,8 +293,7 @@ bool AdminModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshta
 void AdminModule::handleGetModuleConfigResponse(const meshtastic_MeshPacket &mp, meshtastic_AdminMessage *r)
 {
     // Skip if it's disabled or no pins are exposed
-    if (!r->get_module_config_response.payload_variant.remote_hardware.enabled ||
-        !r->get_module_config_response.payload_variant.remote_hardware.available_pins) {
+    if (!r->get_module_config_response.payload_variant.remote_hardware.enabled) {
         LOG_DEBUG("Remote hardware module disabled or no vailable_pins. Skipping...\n");
         return;
     }
