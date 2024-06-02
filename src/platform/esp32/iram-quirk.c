@@ -21,3 +21,11 @@ const spi_flash_chip_t stub_flash_chip __attribute__((IRAM_SECTION)) = {
 extern const spi_flash_chip_t __wrap_esp_flash_chip_gd __attribute__((IRAM_SECTION, alias("stub_flash_chip")));
 extern const spi_flash_chip_t __wrap_esp_flash_chip_issi __attribute__((IRAM_SECTION, alias("stub_flash_chip")));
 extern const spi_flash_chip_t __wrap_esp_flash_chip_winbond __attribute__((IRAM_SECTION, alias("stub_flash_chip")));
+
+IRAM_ATTR __attribute__((noreturn)) void __wrap_abort(void)
+{
+    // from components/bootloader_support/src/bootloader_panic.c
+    esp_rom_printf("abort() was called at PC 0x%08x\r\n", (intptr_t)__builtin_return_address(0) - 3);
+    while (1) {
+    }
+}

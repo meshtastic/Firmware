@@ -72,6 +72,8 @@ if platform.name == "espressif32":
                 "-Wl,--wrap=esp_flash_chip_gd",
                 "-Wl,--wrap=esp_flash_chip_issi",
                 "-Wl,--wrap=esp_flash_chip_winbond",
+                # For IDF5 build
+                "-Wl,--wrap=abort",
             ]
         )
     else:
