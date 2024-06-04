@@ -1,22 +1,17 @@
-#include "configuration.h"
-
-#if !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR
-
 #include "../mesh/generated/meshtastic/telemetry.pb.h"
 #include "TelemetrySensor.h"
-#include <Adafruit_TSL2591.h>
+#include <ClosedCube_OPT3001.h>
 
-class TSL2591Sensor : public TelemetrySensor
+class OPT3001Sensor : public TelemetrySensor
 {
   private:
-    Adafruit_TSL2591 tsl;
+    ClosedCube_OPT3001 opt3001;
 
   protected:
     virtual void setup() override;
 
   public:
-    TSL2591Sensor();
+    OPT3001Sensor();
     virtual int32_t runOnce() override;
     virtual bool getMetrics(meshtastic_Telemetry *measurement) override;
 };
-#endif
