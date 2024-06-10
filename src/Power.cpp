@@ -39,13 +39,9 @@
 #if defined(BATTERY_PIN) && defined(ARCH_ESP32)
 
 static adc_channel_t adc_channel;
-#ifndef BAT_MEASURE_ADC_UNIT // ADC1 is default
-static adc_unit_t unit = ADC_UNIT_1;
-#else // ADC2
-static adc_unit_t unit = ADC_UNIT_2;
+#ifdef BAT_MEASURE_ADC_UNIT
 RTC_NOINIT_ATTR uint64_t RTC_reg_b;
-
-#endif // BAT_MEASURE_ADC_UNIT
+#endif
 
 static adc_oneshot_unit_handle_t adc_unit_handle;
 static adc_cali_handle_t adc_cali_handle;
@@ -215,7 +211,10 @@ class AnalogBatteryLevel : public HasBatteryLevel
 #ifdef ARCH_ESP32 // ADC block for espressif platforms
             raw = espAdcRead();
             int millivolts = 0;
-            adc_cali_raw_to_voltage(adc_cali_handle, raw, &millivolts); // TODO check result
+            esp_err_t res = adc_cali_raw_to_voltage(adc_cali_handle, raw, &millivolts);
+            if (res != ESP_OK) {
+                LOG_ERROR("Failed to convert ADC raw data to calibrated voltage\n");
+            }
             scaled = millivolts * operativeAdcMultiplier;
 #else // block for all other platforms
             for (uint32_t i = 0; i < BATTERY_SENSE_SAMPLES; i++) {
@@ -443,12 +442,19 @@ bool Power::analogInit()
 #endif
 
 #ifdef ARCH_ESP32 // ESP32 needs special analog stuff
-    adc_oneshot_io_to_channel(ADC_CHANNEL, &unit, &adc_channel);
+    adc_unit_t adc_unit;
+    esp_err_t res = adc_oneshot_io_to_channel(BATTERY_PIN, &adc_unit, &adc_channel);
+    if (res != ESP_OK) {
+        LOG_ERROR("Failed to get ADC unit and channel from the given GPIO number %d\n", BATTERY_PIN);
+    }
     adc_oneshot_unit_init_cfg_t adc_unit_config = {
-        .unit_id = unit,
+        .unit_id = adc_unit,
     };
-    adc_oneshot_new_unit(&adc_unit_config, &adc_unit_handle); // TODO check result
-#ifndef ADC_WIDTH                                             // max resolution by default
+    res = adc_oneshot_new_unit(&adc_unit_config, &adc_unit_handle);
+    if (res != ESP_OK) {
+        LOG_ERROR("Failed to create a handle to a specific ADC unit\n");
+    }
+#ifndef ADC_WIDTH // max resolution by default
     static const adc_bitwidth_t width = ADC_BITWIDTH_12;
 #else
     static const adc_bitwidth_t width = ADC_WIDTH;
@@ -457,7 +463,10 @@ bool Power::analogInit()
         .atten = atten,
         .bitwidth = width,
     };
-    adc_oneshot_config_channel(adc_unit_handle, adc_channel, &chan_config); // TODO check result
+    res = adc_oneshot_config_channel(adc_unit_handle, adc_channel, &chan_config);
+    if (res != ESP_OK) {
+        LOG_ERROR("Failed to set ADC oneshot mode\n");
+    }
 #if defined(BAT_MEASURE_ADC_UNIT) && !defined(CONFIG_IDF_TARGET_ESP32S3)
     // ADC2 wifi bug workaround
     // Not required with ESP32S3, breaks compile
@@ -466,12 +475,15 @@ bool Power::analogInit()
 
 #if ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
     adc_cali_line_fitting_config_t cali_config = {
-        .unit_id = unit,
+        .unit_id = adc_unit,
         .atten = atten,
         .bitwidth = ADC_BITWIDTH_DEFAULT,
         .default_vref = DEFAULT_VREF,
     };
-    adc_cali_create_scheme_line_fitting(&cali_config, &adc_cali_handle);
+    res = adc_cali_create_scheme_line_fitting(&cali_config, &adc_cali_handle);
+    if (res != ESP_OK) {
+        LOG_ERROR("Failed to create ADC calibration scheme\n");
+    }
     adc_cali_line_fitting_efuse_val_t val_type;
     adc_cali_scheme_line_fitting_check_efuse(&val_type);
     // show ADC characterization base
@@ -488,12 +500,15 @@ bool Power::analogInit()
     }
 #else
     adc_cali_curve_fitting_config_t cali_config = {
-        .unit_id = unit,
+        .unit_id = adc_unit,
         .chan = adc_channel,
         .atten = atten,
         .bitwidth = ADC_BITWIDTH_DEFAULT,
     };
-    adc_cali_create_scheme_curve_fitting(&cali_config, &adc_cali_handle); // TODO check result
+    res = adc_cali_create_scheme_curve_fitting(&cali_config, &adc_cali_handle);
+    if (res != ESP_OK) {
+        LOG_ERROR("Failed to create ADC calibration scheme\n");
+    }
 #endif
 #endif // ARCH_ESP32
 
@@ -501,7 +516,7 @@ bool Power::analogInit()
 #ifdef VBAT_AR_INTERNAL
     analogReference(VBAT_AR_INTERNAL);
 #else
-    analogReference(AR_INTERNAL);                                         // 3.6V
+    analogReference(AR_INTERNAL); // 3.6V
 #endif
 #endif // ARCH_NRF52
 
