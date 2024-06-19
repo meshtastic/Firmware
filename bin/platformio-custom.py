@@ -86,12 +86,6 @@ if platform.name == "espressif32":
             lb.env.Append(CPPDEFINES=[("QUIRK_RTTTL", 1)])
         elif lb.name == "LovyanGFX":
             lb.env.Append(CPPDEFINES=[("QUIRK_LOVYAN", 1)])
-        elif lb.name == "ESP8266Audio":
-            lb.env.Append(CPPDEFINES=[("QUIRK_ESP8266_AUDIO", 1)])
-            framework_path = env.PioPlatform().get_package_dir(
-                "framework-arduinoespressif32"
-            )
-            lb.env.Append(CXXFLAGS=["-I" + framework_path + "/libraries/WiFi/src"])
 
 Import("projenv")
 

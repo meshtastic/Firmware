@@ -4,6 +4,7 @@
 
 #include <esp_attr.h>
 #include <esp_flash.h>
+#include <esp_system.h>
 #include <spi_flash_chip_driver.h>
 
 #define IRAM_SECTION section(".iram1.stub")
@@ -24,8 +25,5 @@ extern const spi_flash_chip_t __wrap_esp_flash_chip_winbond __attribute__((IRAM_
 
 IRAM_ATTR __attribute__((noreturn)) void __wrap_abort(void)
 {
-    // from components/bootloader_support/src/bootloader_panic.c
-    esp_rom_printf("abort() was called at PC 0x%08x\r\n", (intptr_t)__builtin_return_address(0) - 3);
-    while (1) {
-    }
+    esp_system_abort("abort() was called");
 }
