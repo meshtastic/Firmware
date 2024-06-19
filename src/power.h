@@ -1,7 +1,9 @@
 #pragma once
+#include "../variants/rak2560/RAK9154Sensor.h"
 #include "PowerStatus.h"
 #include "concurrency/OSThread.h"
 #include "configuration.h"
+
 #ifdef ARCH_ESP32
 #include "esp_adc/adc_cali_scheme.h"
 #include <esp_adc/adc_cali.h>
@@ -50,6 +52,11 @@ extern uint64_t RTC_reg_b;
 extern INA260Sensor ina260Sensor;
 extern INA219Sensor ina219Sensor;
 extern INA3221Sensor ina3221Sensor;
+#endif
+
+#if HAS_RAKPROT && !defined(ARCH_PORTDUINO)
+#include "../variants/rak2560/RAK9154Sensor.h"
+extern RAK9154Sensor rak9154Sensor;
 #endif
 
 class Power : private concurrency::OSThread
