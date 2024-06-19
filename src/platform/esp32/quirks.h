@@ -7,7 +7,7 @@
 #define ledcAttachPin(pin, ch) ledcAttachChannel(pin, __freq, __res, ch)
 #endif
 
-#if QUIRK_LOVYAN // for chatter2 and m5stack-core
+#if QUIRK_LOVYAN && (CHATTER_2 || M5STACK)
 #include "rom/ets_sys.h"
 #include <stdbool.h>
 #undef bool
