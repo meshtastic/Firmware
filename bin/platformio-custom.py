@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # trunk-ignore-all(ruff/F821)
 # trunk-ignore-all(flake8/F821): For SConstruct imports
 import sys
@@ -86,6 +87,11 @@ if platform.name == "espressif32":
             lb.env.Append(CPPDEFINES=[("QUIRK_RTTTL", 1)])
         elif lb.name == "LovyanGFX":
             lb.env.Append(CPPDEFINES=[("QUIRK_LOVYAN", 1)])
+
+if platform.name == "nordicnrf52":
+    env.AddPostAction("$BUILD_DIR/${PROGNAME}.hex",
+                      env.VerboseAction(f"{sys.executable} ./bin/uf2conv.py $BUILD_DIR/firmware.hex -c -f 0xADA52840 -o $BUILD_DIR/firmware.uf2",
+                                        "Generating UF2 file"))
 
 Import("projenv")
 
