@@ -257,7 +257,8 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
                     type = INA219;
                 }
                 break;
-            case INA3221_ADDR:
+
+            case INA3221_ADDR: // (0x40) can be INA3221, RAK12500 or DFROBOT Lark weather station
                 registerValue = getRegisterValue(ScanI2CTwoWire::RegisterLocation(addr, 0xFE), 2);
                 LOG_DEBUG("Register MFG_UID FE: 0x%x", registerValue);
                 if (registerValue == 0x5449) {
@@ -282,6 +283,33 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
                     // else: probably a RAK12500/UBLOX GPS on I2C
                 }
                 break;
+
+            case RAK12035VB_ADDR: // (0x20) can be RAK12023VB Soil Sensor or TCA9535 I2C expander
+                // Check if it is a RAK12035, if not can assume it is a TCA9535 I2C expander
+                // the check.. 
+                //  - registry address to interrogate is 0x02,
+                //  - expected value is 0x20
+                // Additional info about registry values for the RAK12035 can be found here [https://github.com/RAKWireless/RAK12035_SoilMoisture/blob/main/RAK12035_SoilMoisture.h]
+
+    #ifdef CAN_HOST_RAK12035VBSOIL
+                registerValue = getRegisterValue(ScanI2CTwoWire::RegisterLocation(addr, 0x02), 1); // get the default address for the device (stored in registry here [0x02]).. should come back as 0x20
+                LOG_INFO("Checking for RAK12035VB Soil Sensor with registry address 0x02...");
+                if (registerValue == 0x20) {
+                    LOG_INFO("Found registry value 0x%x", registerValue);
+                    type = RAK12035VB;
+                    LOG_INFO("RAK12035VB Soil Sensor found");
+                } else {
+                    LOG_INFO("Found registry value 0x%x", registerValue);
+                    type = TCA9535;
+                    LOG_INFO("TCA9535 I2C expander found\n");
+                }
+    #else
+                LOG_INFO("Found registry value 0x%x", registerValue);
+                type = TCA9535;
+                LOG_INFO("TCA9535 I2C expander found\n");
+    #endif
+                break;
+
             case MCP9808_ADDR:
                 // We need to check for STK8BAXX first, since register 0x07 is new data flag for the z-axis and can produce some
                 // weird result. and register 0x00 doesn't seems to be colliding with MCP9808 and LIS3DH chips.
@@ -380,16 +408,16 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
                 }
                 break;
 
-                SCAN_SIMPLE_CASE(LSM6DS3_ADDR, LSM6DS3, "LSM6DS3", (uint8_t)addr.address);
-                SCAN_SIMPLE_CASE(TCA9535_ADDR, TCA9535, "TCA9535", (uint8_t)addr.address);
-                SCAN_SIMPLE_CASE(TCA9555_ADDR, TCA9555, "TCA9555", (uint8_t)addr.address);
-                SCAN_SIMPLE_CASE(VEML7700_ADDR, VEML7700, "VEML7700", (uint8_t)addr.address);
-                SCAN_SIMPLE_CASE(TSL25911_ADDR, TSL2591, "TSL2591", (uint8_t)addr.address);
-                SCAN_SIMPLE_CASE(OPT3001_ADDR, OPT3001, "OPT3001", (uint8_t)addr.address);
-                SCAN_SIMPLE_CASE(MLX90632_ADDR, MLX90632, "MLX90632", (uint8_t)addr.address);
-                SCAN_SIMPLE_CASE(NAU7802_ADDR, NAU7802, "NAU7802", (uint8_t)addr.address);
-                SCAN_SIMPLE_CASE(FT6336U_ADDR, FT6336U, "FT6336U", (uint8_t)addr.address);
-                SCAN_SIMPLE_CASE(MAX1704X_ADDR, MAX17048, "MAX17048", (uint8_t)addr.address);
+                SCAN_SIMPLE_CASE(LSM6DS3_ADDR, LSM6DS3, "LSM6DS3 accelerometer found at address 0x%x", (uint8_t)addr.address);
+                SCAN_SIMPLE_CASE(TCA9555_ADDR, TCA9555, "TCA9555 I2C expander found", (uint8_t)addr.address);
+                SCAN_SIMPLE_CASE(VEML7700_ADDR, VEML7700, "VEML7700 light sensor found", (uint8_t)addr.address);
+                SCAN_SIMPLE_CASE(TSL25911_ADDR, TSL2591, "TSL2591 light sensor found", (uint8_t)addr.address);
+                SCAN_SIMPLE_CASE(OPT3001_ADDR, OPT3001, "OPT3001 light sensor found", (uint8_t)addr.address);
+                SCAN_SIMPLE_CASE(MLX90632_ADDR, MLX90632, "MLX90632 IR temp sensor found", (uint8_t)addr.address);
+                SCAN_SIMPLE_CASE(NAU7802_ADDR, NAU7802, "NAU7802 based scale found", (uint8_t)addr.address);
+                SCAN_SIMPLE_CASE(FT6336U_ADDR, FT6336U, "FT6336U touchscreen found", (uint8_t)addr.address);
+                SCAN_SIMPLE_CASE(MAX1704X_ADDR, MAX17048, "MAX17048 lipo fuel gauge found", (uint8_t)addr.address);
+
 #ifdef HAS_TPS65233
                 SCAN_SIMPLE_CASE(TPS65233_ADDR, TPS65233, "TPS65233", (uint8_t)addr.address);
 #endif
