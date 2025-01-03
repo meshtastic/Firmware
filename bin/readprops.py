@@ -14,6 +14,7 @@ def readProps(prefsLoc):
         short="{}.{}.{}".format(version["major"], version["minor"], version["build"]),
         long="unset",
         deb="unset",
+        rpm="unset",
     )
 
     # Try to find current build SHA if if the workspace is clean.  This could fail if git is not installed
@@ -32,11 +33,13 @@ def readProps(prefsLoc):
         #     suffix = sha + "-d"
         verObj["long"] = "{}.{}".format(verObj["short"], suffix)
         verObj["deb"] = "{}.{}~{}{}".format(verObj["short"], run_number, build_location, sha)
+        verObj["rpm"] = "{}-{}".format(verObj["short"], sha)
     except:
         # print("Unexpected error:", sys.exc_info()[0])
         # traceback.print_exc()
         verObj["long"] = verObj["short"]
         verObj["deb"] = "{}.{}~{}".format(verObj["short"], run_number, build_location)
+        verObj["rpm"] = verObj["short"]
 
     # print("firmware version " + verStr)
     return verObj
