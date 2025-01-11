@@ -13,16 +13,27 @@
 #include "configuration.h"
 
 #ifdef HAS_SDCARD
+#include "SPILock.h"
 #include <SD.h>
 #include <SPI.h>
-
+#ifndef SDCARD_USE_HSPI // old ESP32
 #ifdef SDCARD_USE_SPI1
+#ifdef ARCH_ESP32
 SPIClass SPI1(HSPI);
-#define SDHandler SPI1
+#endif // ARCH_ESP32
+#ifdef ARCH_NRF52
+#define SDCARD_SPI SPI1
+#endif                 // NRF52
+#define SDHandler SPI1 // only used for esp32
 #else
-#define SDHandler SPI
+#ifdef ARCH_NRF52
+#define SDCARD_SPI SPI
+#endif                // NRF52
+#define SDHandler SPI // only used for esp32
+#endif                // SDCARD_USE_SPI1
+#else
+SPIClass SDHandler = SPIClass(HSPI);
 #endif
-
 #endif // HAS_SDCARD
 
 #if defined(ARCH_STM32WL)
@@ -47,7 +58,7 @@ void OSFS::writeNBytes(uint16_t address, unsigned int num, const byte *input)
         input++;
     }
 }
-#endif
+#endif // ARCH_STM32WL
 
 bool lfs_assert_failed =
     false; // Note: we use this global on all platforms, though it can only be set true on nrf52 (in our modified lfs_util.h)
@@ -373,9 +384,11 @@ void setupSDCard()
 {
 #ifdef HAS_SDCARD
     concurrency::LockGuard g(spiLock);
+#if (defined(ARCH_ESP32) || defined(ARCH_NRF52))
+#if (defined(ARCH_ESP32))
     SDHandler.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
-
-    if (!SD.begin(SDCARD_CS, SDHandler)) {
+#endif
+    if (!SD.begin(SDCARD_CS, SDHandler)) { // param SDHandler only used for esp32
         LOG_DEBUG("No SD_MMC card detected");
         return;
     }
@@ -398,6 +411,9 @@ void setupSDCard()
     uint64_t cardSize = SD.cardSize() / (1024 * 1024);
     LOG_DEBUG("SD Card Size: %lu MB", (uint32_t)cardSize);
     LOG_DEBUG("Total space: %lu MB", (uint32_t)(SD.totalBytes() / (1024 * 1024)));
+#if (defined(ARCH_ESP32)) // not implemented in arduino sd library
     LOG_DEBUG("Used space: %lu MB", (uint32_t)(SD.usedBytes() / (1024 * 1024)));
+#endif
+#endif
 #endif
 }
