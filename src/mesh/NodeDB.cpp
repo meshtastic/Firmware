@@ -400,16 +400,10 @@ bool isBroadcast(uint32_t dest)
     return dest == NODENUM_BROADCAST || dest == NODENUM_BROADCAST_NO_LORA;
 }
 
-bool NodeDB::resetRadioConfig(bool factory_reset, bool is_fresh_install)
+void NodeDB::resetRadioConfig(bool is_fresh_install)
 {
-    bool didFactoryReset = false;
-
     if (is_fresh_install) {
         radioGeneration++;
-    }
-
-    if (factory_reset) {
-        didFactoryReset = factoryReset();
     }
 
     if (channelFile.channels_count != MAX_NUM_CHANNELS) {
@@ -417,19 +411,9 @@ bool NodeDB::resetRadioConfig(bool factory_reset, bool is_fresh_install)
 
         channels.initDefaults();
     }
-
     channels.onConfigChanged();
-
     // Update the global myRegion
     initRegion();
-
-    if (didFactoryReset) {
-        LOG_INFO("Reboot due to factory reset");
-        screen->startAlert("Rebooting...");
-        rebootAtMsec = millis() + (5 * 1000);
-    }
-
-    return didFactoryReset;
 }
 
 bool NodeDB::factoryReset(bool eraseBleBonds)
@@ -591,7 +575,7 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
         config.device.node_info_broadcast_secs = default_node_info_broadcast_secs;
     config.security.serial_enabled = true;
     config.security.admin_channel_enabled = false;
-    resetRadioConfig(false, true); // This also triggers NodeInfo/Position requests since we're fresh
+    resetRadioConfig(true); // This also triggers NodeInfo/Position requests since we're fresh
     strncpy(config.network.ntp_server, "meshtastic.pool.ntp.org", 32);
 
 #if (defined(T_DECK) || defined(T_WATCH_S3) || defined(UNPHONE) || defined(PICOMPUTER_S3) || defined(SENSECAP_INDICATOR)) &&     \
@@ -1047,6 +1031,9 @@ void NodeDB::loadFromDisk()
     if (devicestate.version < DEVICESTATE_MIN_VER) {
         LOG_WARN("Devicestate %d is old, discard", devicestate.version);
         installDefaultDeviceState();
+    } else if (state != LoadFileResult::LOAD_SUCCESS) {
+        // If we have an owner in the backup, restore it
+        restorePreferences(meshtastic_AdminMessage_BackupLocation_FLASH, SEGMENT_DEVICESTATE);
     } else {
         LOG_INFO("Loaded saved devicestate version %d", devicestate.version);
     }
@@ -1055,6 +1042,7 @@ void NodeDB::loadFromDisk()
                       &config);
     if (state != LoadFileResult::LOAD_SUCCESS) {
         installDefaultConfig(); // Our in RAM copy might now be corrupt
+        restorePreferences(meshtastic_AdminMessage_BackupLocation_FLASH, SEGMENT_CONFIG);
     } else {
         if (config.version < DEVICESTATE_MIN_VER) {
             LOG_WARN("config %d is old, discard", config.version);
@@ -1064,7 +1052,7 @@ void NodeDB::loadFromDisk()
         }
     }
     if (backupSecurity.private_key.size > 0) {
-        LOG_DEBUG("Restoring backup of security config");
+        LOG_DEBUG("Restoring security config");
         config.security = backupSecurity;
         saveToDisk(SEGMENT_CONFIG);
     }
@@ -1124,6 +1112,7 @@ void NodeDB::loadFromDisk()
                       &meshtastic_LocalModuleConfig_msg, &moduleConfig);
     if (state != LoadFileResult::LOAD_SUCCESS) {
         installDefaultModuleConfig(); // Our in RAM copy might now be corrupt
+        restorePreferences(meshtastic_AdminMessage_BackupLocation_FLASH, SEGMENT_MODULECONFIG);
     } else {
         if (moduleConfig.version < DEVICESTATE_MIN_VER) {
             LOG_WARN("moduleConfig %d is old, discard", moduleConfig.version);
@@ -1137,6 +1126,7 @@ void NodeDB::loadFromDisk()
                       &channelFile);
     if (state != LoadFileResult::LOAD_SUCCESS) {
         installDefaultChannels(); // Our in RAM copy might now be corrupt
+        restorePreferences(meshtastic_AdminMessage_BackupLocation_FLASH, SEGMENT_CHANNELS);
     } else {
         if (channelFile.version < DEVICESTATE_MIN_VER) {
             LOG_WARN("channelFile %d is old, discard", channelFile.version);
@@ -1252,8 +1242,18 @@ bool NodeDB::saveToDiskNoRetry(int saveWhat)
         config.has_network = true;
         config.has_bluetooth = true;
         config.has_security = true;
+        LOG_DEBUG("Saving config version %d", config.version);
 
-        success &= saveProto(configFileName, meshtastic_LocalConfig_size, &meshtastic_LocalConfig_msg, &config);
+#ifndef ARCH_NRF52
+        // First, remove the temp file if it exists
+        spiLock->lock();
+        std::string tempFileName = std::string(configFileName) + ".tmp";
+        FSCom.remove(tempFileName.c_str());
+        spiLock->unlock();
+#endif
+        size_t configSize;
+        pb_get_encoded_size(&configSize, meshtastic_LocalConfig_fields, &config);
+        success &= saveProto(configFileName, configSize, &meshtastic_LocalConfig_msg, &config);
     }
 
     if (saveWhat & SEGMENT_MODULECONFIG) {
@@ -1269,9 +1269,18 @@ bool NodeDB::saveToDiskNoRetry(int saveWhat)
         moduleConfig.has_ambient_lighting = true;
         moduleConfig.has_audio = true;
         moduleConfig.has_paxcounter = true;
+        LOG_DEBUG("Saving moduleConfig version %d", moduleConfig.version);
 
-        success &=
-            saveProto(moduleConfigFileName, meshtastic_LocalModuleConfig_size, &meshtastic_LocalModuleConfig_msg, &moduleConfig);
+#ifndef ARCH_NRF52
+        // First, remove the temp file if it exists
+        spiLock->lock();
+        std::string tempFileName = std::string(configFileName) + ".tmp";
+        FSCom.remove(tempFileName.c_str());
+        spiLock->unlock();
+#endif
+        size_t moduleConfigSize;
+        pb_get_encoded_size(&moduleConfigSize, meshtastic_LocalModuleConfig_fields, &moduleConfig);
+        success &= saveProto(moduleConfigFileName, moduleConfigSize, &meshtastic_LocalModuleConfig_msg, &moduleConfig);
     }
 
     if (saveWhat & SEGMENT_CHANNELS) {
@@ -1610,6 +1619,94 @@ UserLicenseStatus NodeDB::getLicenseStatus(uint32_t nodeNum)
         return UserLicenseStatus::NotKnown;
     }
     return info->user.is_licensed ? UserLicenseStatus::Licensed : UserLicenseStatus::NotLicensed;
+}
+
+bool NodeDB::backupPreferences(meshtastic_AdminMessage_BackupLocation location)
+{
+    bool success = false;
+    lastBackupAttempt = millis();
+#ifdef FSCom
+    if (location == meshtastic_AdminMessage_BackupLocation_FLASH) {
+        meshtastic_BackupPreferences backup = meshtastic_BackupPreferences_init_zero;
+        backup.version = DEVICESTATE_CUR_VER;
+        backup.timestamp = getValidTime(RTCQuality::RTCQualityDevice, false);
+        backup.has_config = true;
+        backup.config = config;
+        backup.has_module_config = true;
+        backup.module_config = moduleConfig;
+        backup.has_channels = true;
+        backup.channels = channelFile;
+        backup.has_owner = true;
+        backup.owner = owner;
+
+        size_t backupSize;
+        pb_get_encoded_size(&backupSize, meshtastic_BackupPreferences_fields, &backup);
+
+        spiLock->lock();
+        FSCom.mkdir("/backups");
+        spiLock->unlock();
+        success = saveProto(backupFileName, backupSize, &meshtastic_BackupPreferences_msg, &backup);
+
+        if (success) {
+            LOG_INFO("Saved backup preferences");
+        } else {
+            LOG_ERROR("Failed to save backup preferences to file");
+        }
+    } else if (location == meshtastic_AdminMessage_BackupLocation_SD) {
+        // TODO: After more mainline SD card support
+    }
+#endif
+    return success;
+}
+
+bool NodeDB::restorePreferences(meshtastic_AdminMessage_BackupLocation location, int restoreWhat)
+{
+    bool success = false;
+#ifdef FSCom
+    if (location == meshtastic_AdminMessage_BackupLocation_FLASH) {
+        spiLock->lock();
+        if (!FSCom.exists(backupFileName)) {
+            spiLock->unlock();
+            LOG_WARN("Could not restore. No backup file found");
+            return false;
+        } else {
+            spiLock->unlock();
+        }
+        meshtastic_BackupPreferences backup = meshtastic_BackupPreferences_init_zero;
+        success = loadProto(backupFileName, meshtastic_BackupPreferences_size, sizeof(meshtastic_BackupPreferences),
+                            &meshtastic_BackupPreferences_msg, &backup);
+        if (success) {
+            if (restoreWhat & SEGMENT_CONFIG) {
+                config = backup.config;
+                LOG_DEBUG("Restored config");
+            }
+            if (restoreWhat & SEGMENT_MODULECONFIG) {
+                moduleConfig = backup.module_config;
+                LOG_DEBUG("Restored module config");
+            }
+            if (restoreWhat & SEGMENT_DEVICESTATE) {
+                devicestate.owner = backup.owner;
+                LOG_DEBUG("Restored device state");
+            }
+            if (restoreWhat & SEGMENT_CHANNELS) {
+                channelFile = backup.channels;
+                LOG_DEBUG("Restored channels");
+            }
+
+            success = saveToDisk(restoreWhat);
+            if (success) {
+                LOG_INFO("Restored preferences from backup");
+            } else {
+                LOG_ERROR("Failed to save restored preferences to flash");
+            }
+        } else {
+            LOG_ERROR("Failed to restore preferences from backup file");
+        }
+    } else if (location == meshtastic_AdminMessage_BackupLocation_SD) {
+        // TODO: After more mainline SD card support
+    }
+    return success;
+#endif
 }
 
 /// Record an error that should be reported via analytics
